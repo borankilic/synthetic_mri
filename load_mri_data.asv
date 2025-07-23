@@ -1,0 +1,128 @@
+function [data, ref_header, filepaths] = load_mri_data(patient_dir)
+%LOAD_MRI_DATA Load MRI data from NIfTI files in structured directories
+%   [data, ref_header, filepaths] = LOAD_MRI_DATA(patient_dir) loads PD, R1, R2 data
+%   from the Results folder and B1map, B1ref data from the B1mapCalc folder
+%   within the specified patient directory.
+%   Returns a struct with the loaded data, a reference header, and a file path map.
+
+    % Define directory structure and file patterns
+    results_dir = fullfile(patient_dir, 'extracted_mpms_temp');
+    b1_dir = fullfile(patient_dir, 'registered_B1_temp');
+    
+    % Check if directories exist
+    if ~exist(results_dir, 'dir')
+        error('Results directory not found: %s', results_dir);
+    end
+    
+    if ~exist(b1_dir, 'dir')
+        warning('B1mapCalc directory not found: %s. B1 correction will not be available.', b1_dir);
+    end
+    
+    % Define file patterns for each directory
+    results_patterns = containers.Map(...
+        {'PD', 'R1', 'R2'}, ...
+        {'PD', 'R1', 'R2'});
+    
+    b1_patterns = containers.Map(...
+        {'B1map', 'B1ref'}, ...
+        {'B1map', 'B1ref'});
+    
+    % Initialize output structs
+    data = struct();
+    ref_header = [];
+    filepaths = containers.Map();
+    
+    % Load data from Results directory
+    fprintf('Loading quantitative maps from Results directory...\n');
+    [data, ref_header, filepaths] = load_from_directory(results_dir, results_patterns, data, ref_header, filepaths);
+    
+    % Load B1 data if directory exists
+    if exist(b1_dir, 'dir')
+        fprintf('Loading B1 correction data from B1mapCalc directory...\n');
+        [data, ref_header, filepaths] = load_from_directory(b1_dir, b1_patterns, data, ref_header, filepaths);
+    end
+    
+    % Ensure we have a reference header
+    if isempty(ref_header)
+        error('Could not load any valid NIfTI header for reference');
+    end
+end
+
+function [data, ref_header, filepaths] = load_from_directory(directory, file_patterns, data, ref_header, filepaths)
+%LOAD_FROM_DIRECTORY Load NIfTI files from a specific directory
+    
+    % Get all NIfTI files
+    nii_files = dir(fullfile(directory, '*.nii*'));
+    
+    if isempty(nii_files)
+        warning('No NIfTI files found in directory: %s', directory);
+        return;
+    end
+    
+    % Initialize fields if they don't exist
+    field_names = values(file_patterns);
+    for i = 1:length(field_names)
+        if ~isfield(data, field_names{i})
+            data.(field_names{i}) = [];
+        end
+    end
+    
+    % Initialize filepaths map if needed
+    if isempty(filepaths)
+        filepaths = containers.Map();
+    end
+    
+    % Process each file
+    for k = 1:length(nii_files)
+        filename = nii_files(k).name;
+        filepath = fullfile(directory, filename);
+        
+        % Find matching pattern
+        field_name = find_matching_field(filename, file_patterns);
+        
+        if ~isempty(field_name)
+            try
+                % Load the data
+                data_raw = niftiread(filepath);
+                info = niftiinfo(filepath);
+                if isfield(info, 'Raw') && isfield(info.Raw, 'scl_slope')
+                    slope = info.Raw.scl_slope;
+                    intercept = info.Raw.scl_inter;
+                else
+                    slope = 1;
+                    intercept = 0;
+                end
+                
+                data = double(data_raw) * slope + intercept;
+
+                % Store filepath
+                filepaths(field_name) = filepath;
+                
+                % Use PD header as reference
+                if strcmp(field_name, 'PD_brain.') || isempty(ref_header)
+                    ref_header = niftiinfo(filepath);
+                end
+                
+                fprintf('  Loaded %s data from: %s\n', field_name, filename);
+                
+            catch ME
+                warning('Failed to load %s: %s', filename, ME.message);
+            end
+        else
+            fprintf('  Skipping unrecognized file: %s\n', filename);
+        end
+    end
+end
+
+function field_name = find_matching_field(filename, file_patterns)
+%FIND_MATCHING_FIELD Find which field a filename corresponds to
+    field_name = '';
+    patterns = keys(file_patterns);
+    
+    for i = 1:length(patterns)
+        if contains(filename, patterns{i}, 'IgnoreCase', true)
+            field_name = file_patterns(patterns{i});
+            break;
+        end
+    end
+end

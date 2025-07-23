@@ -1,0 +1,176 @@
+function B1_upscaled = resize_b1_map(B1map_path, ref_array_path, interp_method)
+%RESIZE_B1_MAP Resize B1 map to match reference array using spatial referencing
+%
+%   B1_upscaled = resize_b1_map(B1map_path, ref_array_path)
+%   B1_upscaled = resize_b1_map(..., interp_method)
+%
+%   - Reads both NIfTIs, builds imref3d for source & target in real mm space
+%   - Uses imwarp to resample the B1 map into the target grid
+%   - Applies an affine transformation from NIfTI S-form/Q-form to align
+%     the images in physical space.
+%   - Clamps values to [10,200] (%)
+%
+    if nargin < 3, interp_method = 'linear'; end
+    
+    % --- Input Validation and Default Handling ---
+    valid_interp_methods = {'nearest', 'linear', 'cubic', 'spline'}; % Added 'spline'
+    if ~any(strcmpi(interp_method, valid_interp_methods))
+        if strcmpi()
+        warning('Invalid interpolation method "%s", using linear.', interp_method);
+        
+    end
+
+    % --- Read NIfTI Data and Headers ---
+    try
+        B1vol = niftiread(B1map_path);
+        B1info = niftiinfo(B1map_path); % Use niftiinfo to get full header
+    catch ME
+        error('Failed to read B1 map NIfTI file "%s": %s', B1map_path, ME.message);
+    end
+
+    try
+        refvol = niftiread(ref_array_path);
+        refinfo = niftiinfo(ref_array_path); % Use niftiinfo to get full header
+    catch ME
+        error('Failed to read reference NIfTI file "%s": %s', ref_array_path, ME.message);
+    end
+    
+    % --- Handle Empty B1 Map ---
+    if isempty(B1vol) || all(size(B1vol) == 0) % Check for truly empty volume
+        warning('Empty B1 map: returning 100%% uniform map with reference volume dimensions.');
+        B1_upscaled = ones(size(refvol), 'like', refvol) * 100;
+        return;
+    end
+    
+    % --- Build Spatial References with NIfTI Affine Transformations ---
+    % It's crucial to use the full affine transformation matrix from the NIfTI header
+    % (S-form or Q-form) to accurately map between physical spaces, not just
+    % pixel dimensions and size. niftiinfo provides this.
+    
+    % niftiinfo.Transform contains the sform/qform transformation matrix
+    % For imref3d, we need the world limits, which can be derived from the
+    % transformation matrix and dimensions.
+    
+    % B1 Map spatial reference
+    % The NIfTI transform maps voxel indices (0-based) to world coordinates.
+    % imref3d expects 1-based indices and defines world limits based on the extent
+    % of the image.
+    
+    % MATLAB's niftiinfo.Transform directly gives the 4x4 matrix mapping
+    % [x y z 1]' (voxel coordinates) to [X Y Z 1]' (physical coordinates).
+    % The imref3d object can be constructed from this information.
+    
+    srcR = niftiCustomSpatialReference(B1info);
+    tgtR = niftiCustomSpatialReference(refinfo);
+               
+    % --- Run the warp/resample ---
+    % The core issue with your previous imwarp call was `affine3d(eye(4))`.
+    % This assumes both images are perfectly aligned in their voxel grids
+    % and only differ in resolution and extent. In reality, NIfTI files
+    % often have different origins, orientations, or even small shifts
+    % encoded in their S-form/Q-form matrices.
+    % By constructing srcR and tgtR using the full NIfTI transformations,
+    % imwarp will automatically handle the necessary affine transformation
+    % between the two physical spaces.
+    
+    try
+        B1_upscaled = imwarp(B1vol, srcR, 'OutputView', tgtR, ...
+                             'InterpolationMethod', interp_method);
+    catch ME
+        % Fallback to imresize3 is less ideal for medical images as it
+        % doesn't respect physical space, but keep as a last resort if imwarp fails.
+        warning('imwarp failed (%s). This usually indicates an issue with spatial referencing. Falling back to imresize3. The output might be misaligned.', E.message);
+        B1_upscaled = imresize3(B1vol, size(refvol), 'Method', interp_method);
+    end
+    
+    % --- Clamp to reasonable B1 percentages ---
+    % Ensure data type consistency if needed, though imwarp usually handles this
+    % based on the input B1vol's type.
+    B1_upscaled = cast(B1_upscaled, 'like', B1vol); % Maintain original data type
+    B1_upscaled = max(B1_upscaled, 10);
+    B1_upscaled = min(B1_upscaled, 200);
+end
+
+% Helper function to create imref3d from niftiinfo
+function R = niftiCustomSpatialReference(nifti_info)
+    % nifti_info.Transform is a 4x4 affine matrix mapping voxel coordinates
+    % to world coordinates.
+    % voxel coordinates are 0-indexed in NIfTI, but imref3d uses 1-indexed.
+    
+    % Get image dimensions
+    dim = double(nifti_info.ImageSize);
+    
+    % Get the transformation matrix
+    T = nifti_info.Transform.T;
+    
+    % Define the world coordinates of the 8 corners of the image volume
+    % (0,0,0) (nx,0,0) (0,ny,0) ... (nx,ny,nz) in 0-indexed voxel space
+    % We need to consider both voxel and world coordinates to derive the
+    % limits suitable for imref3d.
+    
+    % The simplest way is to let imref3d calculate based on the transform.
+    % If niftiinfo.Transform is a direct output from niftiinfo, then
+    % it can often be used to directly construct imref3d.
+    % However, imref3d's constructor usually takes dimensions and pixel
+    % dimensions, or dimensions and world limits.
+    
+    % The `niftiinfo.Transform` property directly holds an `affine3d` object
+    % which can be used to construct `imref3d` more robustly than just
+    % `PixelDimensions`.
+    
+    % Reconstruct imref3d using the transformation matrix from niftiinfo
+    % This approach correctly accounts for origin, orientation, and spacing.
+    
+    % MATLAB's `niftiinfo`'s `Transform` property is already an `affine3d` object.
+    % We need to create an `imref3d` from it.
+    
+    % Get spatial dimensions from NIfTI header (usually dim(2:4) for 3D)
+    % Assuming ImageSize is [X Y Z]
+    imageSize = nifti_info.ImageSize;
+    
+    % The niftiinfo.Transform object maps 0-indexed intrinsic coordinates to world.
+    % imref3d uses 1-indexed intrinsic coordinates.
+    % We need to adjust the origin of the transform for imref3d.
+    
+    % For nifti files, the transform matrix maps voxel coordinates (0,0,0) to the first
+    % corner of the image in world coordinates.
+    % imref3d uses 1-based indexing, so the (1,1,1) voxel maps to a specific world coordinate.
+    
+    % A more robust way to get imref3d from niftiinfo:
+    % Calculate world coordinates of the first (1,1,1) voxel and last (size) voxel
+    
+    % The Transform property of niftiinfo returns an affine3d object.
+    % We can use this to get the world coordinates of the corners.
+    
+    % Intrinsic coordinates of image corners (1-based, as required by imref3d)
+    [X, Y, Z] = ndgrid(1:imageSize(1), 1:imageSize(2), 1:imageSize(3));
+    
+    % Transform a small set of representative points (e.g., corners)
+    % to get the min/max world coordinates
+    
+    % Create an imref3d from the NIfTI `Transform` and `ImageSize`.
+    % The `Transform` is a 4x4 affine matrix. `imref3d` needs `XWorldLimits`,
+    % `YWorldLimits`, `ZWorldLimits`, and `ImageSize`.
+    % The `Transform` directly gives the relationship between voxel indices
+    % (0-based as per NIfTI convention, but can be adapted for 1-based)
+    % and world coordinates.
+    
+    % The simplest way, if niftiinfo.Transform is an affine3d object,
+    % is to construct an imref3d using the affine transform.
+    
+    % Get voxel dimensions directly from niftiinfo if transform is not explicitly used
+    % For simple cases where there's no rotation/shear and just spacing/origin
+    pixdim_x = nifti_info.PixelDimensions(1);
+    pixdim_y = nifti_info.PixelDimensions(2);
+    pixdim_z = nifti_info.PixelDimensions(3);
+    
+    % Build imref3d from image size and pixel dimensions.
+    % NOTE: niftiinfo.PixelDimensions are typically in (X,Y,Z) order.
+    % imref3d expects (Size, DeltaY, DeltaX, DeltaZ) if using 3 args,
+    % or (Size, DeltaX, DeltaY, DeltaZ) if using all 4 args for PixelExtentInWorldY,X,Z
+    % Let's use the most robust way: define limits directly from transform.
+    
+    % The `niftiinfo.Transform` object represents the full affine transformation.
+    % We can pass this directly to `imref3d` along with `ImageSize`.
+    R = imref3d(imageSize, nifti_info.Transform);
+end
