@@ -2,7 +2,7 @@ clear; clc;
 
 %% Set up paths
 patient_dir = '/data/dt_transfer/KP2BK/20241028_27993.cb/mpm/';
-output_dir = '/data/tu_kilicb/synthetic_imgs_generated_nomask/';
+output_dir = '/data/tu_kilicb/synthetic_imgs_generated_fsl_mask/';
 
 % %% Set up TR, TE, FA values
 % TE_values = [5, 10, 15, 20];           % Echo times (ms)
@@ -23,7 +23,7 @@ try
         'alpha_vals', alpha_values, ...
         'signal_constant', 1500, ...  
         'interp_method', 'nearestneighbour', ... ;  % {trilinear,nearestneighbour,sinc,spline}
-        'extract_brain', 'no')  % Brain extraction using 'fsl' (c1+c2+c3>0.95 and erode&dilate) , 'bet' or 'no' for no extraction
+        'extract_brain', 'fsl')  % Brain extraction using 'fsl' (c1+c2+c3>0.95 and erode&dilate) , 'bet' or 'no' for no extraction
 catch ME
     fprintf('Error: %s\n', ME.message);
     return;

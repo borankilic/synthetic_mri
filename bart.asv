@@ -1,0 +1,5 @@
+setenv('TOOLBOX_PATH', '/data/u_kilicb_software/bart-0.9.00/');
+addpath(fullfile(getenv('TOOLBOX_PATH'), 'matlab'));
+shepp = bart('phantom -x 64')
+
+system("")
