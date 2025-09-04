@@ -1,0 +1,21 @@
+name: GitlabSync
+
+on:
+  - push
+  - delete
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+      with: 
+        fetch-depth: 0
+    - name: Push To Gitlab
+      run: |
+        echo Starting to push repo to gitlab
+        git config user.name ${{ secrets.TARGET_USERNAME }}
+        git remote set-url origin "https://${{ secrets.TARGET_USERNAME }}:${{ secrets.GITLAB_ACCESS_TOKEN }}@${{ secrets.TARGET_URL }}"
+        git push origin main
+
