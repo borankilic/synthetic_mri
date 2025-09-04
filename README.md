@@ -25,7 +25,7 @@ The main workflow is controlled by the `main.m` script. Here's a high-level over
 1.  **Set up the environment:**
     *   Make sure you have MATLAB installed with the Image Processing Toolbox.
     *   Install FSL, make sure it's in your system's PATH and it's accesible from the terminal via `FSL` command.
-    *   Install Julia and the required packages for ROMEO (`ROMEO`, `MriResearchTools`, `ArgParse`).
+    *   Install Julia and the required packages for ROMEO (`ROMEO`, `MriResearchTools`, `ArgParse`). Then install ROMEO following theinstructions in [this link](https://github.com/korbinian90/ROMEO.jl#usage---command-line).
 2.  **Configure the paths:**
     *   Open the `main.m` script and modify the paths in the "Setup paths" section to point to your data.
     *   We adopt the folder structure of hMRI-toolbox for input directory. Your patient directory (`patient_dir`) should be structured as below:
@@ -53,7 +53,7 @@ The main workflow is controlled by the `main.m` script. Here's a high-level over
     * `im_mag_dir` should point to the directory where weighted (T1,PD etc.) magnitude images (which MPMs are created from) are stored.  Directory should contain each echo in a seperate NIFTI file. Make sure length of the list `real_echo_times` provided and number of NIFTI files in `im_mag_dir` match.
     * `im_phase_dir` should point to the directory where weighted (T1,PD etc.) phase images (which MPMs are created from) are stored.  Directory should contain each echo in a seperate NIFTI file. Make sure length of the list `real_echo_times` provided and number of NIFTI files in `im_phase_dir` match.
     * `espririt_path` should point to the directory where the MATLAB library Matlab Library including implementations of [SPIRiT, ESPIRiT, Coil Compression, SAKE](https://people.eecs.berkeley.edu/~mlustig/Software.html). You can download the library from [here](https://people.eecs.berkeley.edu/~mlustig/software/SPIRiT_v0.3.tar.gz).
-    * `romeo_script_path` should point to your `romeo.jl file`. Please follow the steps in [here ](https://github.com/korbinian90/ROMEO.jl#usage---command-line) to setup ROMEO.
+    * `romeo_script_path` should point to your `romeo.jl file`. Please follow the steps in [here ](https://github.com/korbinian90/ROMEO.jl#usage---command-line) to setup ROMEO. You can copy your file into (./
     * `real_echo_times` be a list of echo times in ms. You can find the specific echo time in your sequence configuration file.
     
 3.  **Run the script:**

@@ -38,9 +38,33 @@ function save_nifti_image(image_data, output_path, ref_header)
     
     try
         % Save the NIfTI file
-        niftiwrite(image_data, output_path, output_header);
+        niftiwrite_numbered(image_data, output_path, output_header);
         
     catch ME
         error('Failed to save NIfTI file "%s": %s', output_path, ME.message);
     end
+end
+
+function niftiwrite_numbered(img, filename, info, varargin)
+    % niftiwrite_numbered: Save a NIfTI file with automatic numbering
+    % If filename.nii exists, it will save as filename(1).nii, filename(2).nii, etc.
+    
+    [pathstr, name, ext] = fileparts(filename);
+    if isempty(ext)
+        ext = '.nii';
+    end
+    
+    fullFile = fullfile(pathstr, [name ext]);
+    count = 1;
+    
+    % Increment number until a free filename is found
+    while exist(fullFile, 'file')
+        fullFile = fullfile(pathstr, sprintf('%s(%d)%s', name, count, ext));
+        count = count + 1;
+    end
+    
+    % Save using niftiwrite
+    niftiwrite(img, fullFile, info, varargin{:});
+    
+    fprintf('Saved NIfTI file as: %s\n', fullFile);
 end

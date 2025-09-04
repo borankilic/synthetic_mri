@@ -1,4 +1,4 @@
-function [status, cmdout] = runRomeo(magFolder, phaseFolder, echoTimes, output_path, mpm_dir, romeoScriptPath)
+function [status, cmdout] = runRomeo(cfg)
 % runRomeoWithMerge  Merge NIfTI files (if needed) and call romeo.jl
 %
 % [status, cmdout] = runRomeoWithMerge(magFolder, phaseFolder, echoTimes, B0_folder, romeoScriptPath)
@@ -11,7 +11,15 @@ function [status, cmdout] = runRomeo(magFolder, phaseFolder, echoTimes, output_p
 %   romeoScriptPath - full path to romeo.jl (or executable romeo script)
 %
 % Requires: FSL installed and 'fslmerge' available in system PATH
-    
+    magFolder = cfg.paths.im_mag_dir;
+    phaseFolder = cfg.paths.im_phase_dir;
+    echoTimes = cfg.params.real_echo_times;
+    output_path = cfg.paths.output_dir;
+    mpm_dir = cfg.paths.patient_dir;
+    romeoScriptPath = cfg.paths.romeo_script_path;
+
+
+
     if nargin < 5
         error('All 5 parameters are required.');
     end

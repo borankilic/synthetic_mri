@@ -7,12 +7,20 @@ function generate_synthetic_images(cfg)
     patient_dir = cfg.paths.patient_dir;
     output_dir = cfg.paths.output_dir;
     kspace_path = cfg.paths.kspace_path;
+    espirit_path = cfg.path.espirit_path;
     TE_vals = cfg.params.TE_values;
     TR_vals = cfg.params.TR_values;
+    TI_vals = cfg.params.TI_values;
     alpha_vals = cfg.params.FA_values;
     signal_constant = cfg.options.signal_constant;
     interp_method = cfg.options.interp_method;
     extract_brain_method = cfg.options.extract_brain;
+    SNR_dB = cfg.params.SNR_dB;
+    num_images = cfg.options.num_options;
+    sequence = cfg.options.sequence;
+    threshold_tmap = cfg.options.threshold_tmap;
+    threshold_bet = cfg.options.threshold_bet;
+    smap_params = cfg.params.smap_params;
 
     % Create output directory if it doesn't exist
     if ~exist(output_dir, 'dir')
@@ -27,7 +35,7 @@ function generate_synthetic_images(cfg)
     if ~exist(extracted_mpms_temp, 'dir'), mkdir(extracted_mpms_temp), end
 
     if ~strcmp(extract_brain_method, 'no')
-        extract_brain(data_struct, extracted_mpms_temp, 'method', extract_brain_method, 'patient_dir', patient_dir);
+        extract_brain(data_struct, extracted_mpms_temp, 'method', extract_brain_method, 'patient_dir', patient_dir,'threshold_tmap', threshold_tmap, 'threshold_bet', threshold_bet);
     end
 
     % Create sensitivity maps if doesnt exist yet
@@ -38,15 +46,15 @@ function generate_synthetic_images(cfg)
     if ~exist(replace(smap_file_path, 'smap', 'smap_mag'), 'file')
         fprintf("Creating sensitivity maps using ESPIRiT algorithm.")
         create_smaps(kspace_path, smap_file_path, ...
-        'espirit_path'  , '/data/u_kilicb_software/ESPIRiT/', ...
-        'ncalib'      , 20, ...
-        'ksize'      , [5 5], ...
-        'eigThresh1' , 0.1, ...
-        'eigThresh2' , 0.5, ...
-        'show_figures' ,  'none' , ....   % options: 'none','essential','detailed'
-        'verbose' , true, ...
         'data_struct', data_struct, ...
-        'smoothing_radius', 25);          % Smoothing radius of gaussian kernel in mm
+        'espirit_path'  , espirit_path, ...
+        'ncalib'      , smap_params.ncalib, ...
+        'ksize'      , smap_params.ksize, ...
+        'eigThresh1' , smap_params.eigThres1, ...
+        'eigThresh2' , smap_params.eigThres2, ...
+        'show_figures' ,  smap_params.show_figures, ....   
+        'verbose' , smap_params.verbose, ...
+        'smoothing_radius', smap_params.smoothing_radius);          % Smoothing radius of gaussian kernel in mm
     
     else
         fprintf("Skipping smap creation. Sensitivity maps already exists.\n");
@@ -73,38 +81,70 @@ function generate_synthetic_images(cfg)
 
     for TE = TE_vals
         for TR = TR_vals
-            for alpha = alpha_vals
-                combination_count = combination_count + 1;
-
-                fprintf('Processing combination %d/%d: TE=%d, TR=%d, FA=%d\n', ...
-                    combination_count, total_combinations, TE, TR, alpha);
-
-                % Generate synthetic signal
-                signal = compute_ernst_signal(data_struct, TE, TR, alpha, ...
-                    signal_constant, interp_method, extract_brain_method);
-
-                %Fix hot pixels (if any)
-                threshold_std_dev = 1000; % Threshold for exluding pixels from the image in units of tsndart deviation
-                thresholding_method = 'mean';
-                signal = fixHotPixels(signal, threshold_std_dev, thresholding_method);
-                %Normalize the signal range for numerical stability
-                mean_val = mean(signal(:));
-                signal = (signal ./ mean_val);
-
-                % Save result
-                output_filename = sprintf('%s_synthim_TE%d_FA%d_TR%d.nii', ...
-                    patient_id, TE, alpha, TR);
-                save_dir = fullfile(output_dir, 'synthetic_images');
-                if ~exist(save_dir, 'dir'), mkdir(save_dir), end
-                output_path = fullfile(save_dir, output_filename);
-                
-                save_nifti_image(signal, output_path, data_struct.R1.ref_header);
-                write_json_metadata(output_path, data_struct.R1.ref_header, TE, TR, alpha);
-
-                fprintf('Saved: %s\n', output_filename);
+            for TI = TI_vals
+                for alpha = alpha_vals
+                    combination_count = combination_count + 1;
+    
+                    fprintf('Processing combination %d/%d: TE=%d, TR=%d, FA=%d\n', ...
+                        combination_count, total_combinations, TE, TR, alpha);
+    
+                    % Generate synthetic signal
+                    signal = compute_ernst_signal(data_struct, TE, TR, TI, alpha, ...
+                        signal_constant, interp_method, extract_brain_method, sequence);
+    
+                    %Fix hot pixels (if any)
+                    threshold_std_dev = 1000; % Threshold for exluding pixels from the image in units of tsndart deviation
+                    thresholding_method = 'mean';
+                    signal = fixHotPixels(signal, threshold_std_dev, thresholding_method);
+                    
+                    for i = 1:num_images 
+                        %% ADD GAUSSIAN NOISE
+                        % Convert SNR from dB to linear scale
+                        SNR_linear = 10^(SNR_dB/10);
+                        % Compute signal power
+                        signal_power = mean(signal(:).^2);                
+                        % Compute noise power needed
+                        noise_power = signal_power / SNR_linear;               
+                        % Standard deviation of Gaussian noise
+                        sigma = sqrt(noise_power);                
+                        % Add Gaussian noise
+                        noisy_signal = signal + sigma*randn(size(img));        
+        
+                        %% Save result
+                        output_filename = generate_filename(patient_id, sequence, TE, alpha, TR, TI);
+                        save_dir = fullfile(output_dir, 'synthetic_images');
+                        if ~exist(save_dir, 'dir'), mkdir(save_dir), end
+                        output_path = fullfile(save_dir, output_filename);
+                        
+                        save_nifti_image(noisy_signal, output_path, data_struct.R1.ref_header);
+                        write_json_metadata(output_path, data_struct.R1.ref_header, TE, TR, alpha, cfg);
+        
+                        fprintf('Saved: %s\n', output_filename);
+                    end
+                end
             end
         end
     end
 
     fprintf('Finished generating %d synthetic images.\n', total_combinations);
+end
+
+function output_filename = generate_filename(patient_id, sequence, TE, alpha, TR, TI)
+    switch sequence
+        case 'GRE'
+            output_filename = sprintf('%s_%s_synthim_TE%d_FA%d_TR%d.nii', ...
+                patient_id, sequence, TE, alpha, TR);
+        case 'MP2RAGE'
+            output_filename = sprintf('%s_%s_synthim_TE%d_FA%d_TR%d_TI1_%d_TI2_%d.nii', ...
+                patient_id, sequence, TE, alpha, TR, TI(1), TI(2));
+        case 'FSE'
+            output_filename = sprintf('%s_%s_synthim_TE%d_TR%d.nii', ...
+                patient_id, sequence, TE, TR);
+        case 'FLAIR'
+            output_filename = sprintf('%s_%s_synthim_TE%d_TR%d_TI%d.nii', ...
+                patient_id, sequence, TE, TR, TI);
+        otherwise
+            output_filename = sprintf('%s_%s_synthim_TE%d_FA%d_TR%d.nii', ...
+                patient_id, sequence, TE, alpha, TR);
+    end
 end

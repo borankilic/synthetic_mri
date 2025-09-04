@@ -1,4 +1,4 @@
-function signal = compute_ernst_signal(data_struct, TE, TR,TI, alpha, signal_constant, interp_method, extract_brain, sequence)
+function signal = compute_ernst_signal(data_struct, TE, TR, alpha, signal_constant, interp_method, extract_brain)
 %COMPUTE_ERNST_SIGNAL Compute MRI signal using Ernst equation
 % signal = compute_ernst_signal(data_struct, TE, TR, alpha, signal_constant, interp_method)
 % computes the MRI signal using the Ernst equation:
@@ -43,24 +43,22 @@ else
     B1_scaled = ones(size(PD)) * 100;
 end
 
-% if isfield(data_struct, 'smap_registered') && ~isempty(data_struct.smap_registered)
-%     % Use pre-registered B1 map directly, no interpolation
-%     smap_scaled = double(data_struct.smap_registered.data);
-% 
-% elseif isfield(data_struct, 'smap') && ~isempty(data_struct.smap)
-%     % Resize and interpolate B1 map to match PD dimensions
-%     smap_scaled = resize_b1_map(data_struct.smap.data, PD, interp_method);
-% else
-%     % No B1 correction provided, assume 100%%
-%     smap_scaled = ones(size(PD)) * 100;
-% end
-% 
+if isfield(data_struct, 'smap_registered') && ~isempty(data_struct.smap_registered)
+    % Use pre-registered B1 map directly, no interpolation
+    smap_scaled = double(data_struct.smap_registered.data);
+    
+elseif isfield(data_struct, 'smap') && ~isempty(data_struct.smap)
+    % Resize and interpolate B1 map to match PD dimensions
+    smap_scaled = resize_b1_map(data_struct.smap.data, PD, interp_method);
+else
+    % No B1 correction provided, assume 100%%
+    smap_scaled = ones(size(PD)) * 100;
+end
 
 % Convert flip angle to radians and apply B1 correction
 alpha_rad = deg2rad(alpha);
 effective_alpha = alpha_rad .* (B1_scaled / 100);
-
-%smap_norm = (smap_scaled - min(smap_scaled(:))) / (max(smap_scaled(:)) - min(smap_scaled(:)));  %normalize to [0,1]
+smap_norm = (smap_scaled - min(smap_scaled(:))) / (max(smap_scaled(:)) - min(smap_scaled(:)));  %normalize to [0,1]
 
 
 
@@ -77,32 +75,17 @@ E2 = exp(-TE_s .* R2);
 sin_alpha = sin(effective_alpha);
 cos_alpha = cos(effective_alpha);
 
-% Sequence-specific signal calculation
-switch sequence
-    case 'GRE'  % Gradient Echo (Ernst equation)
-        numerator = sin_alpha .* (1 - E1);
-        denominator = 1 - cos_alpha .* E1;
-        denominator = max(denominator, eps);
-        signal = signal_constant .* PD .* (numerator ./ denominator) .* E2;
-    case 'MP2RAGE'  % Magnetization-Prepared 2 Rapid Acquisition GRE
-        TI1_s = TI(1) / 1000;
-        TI2_s = TI(2) / 1000;
-        Mz1 = 1 - 2*exp(-TI1_s .* R1) + E1;
-        Mz2 = 1 - 2*exp(-TI2_s .* R1) + E1;
-        S_GRE1 = signal_constant .* PD .* sin_alpha .* Mz1 .* E2;
-        S_GRE2 = signal_constant .* PD .* sin_alpha .* Mz2 .* E2;
-        signal = (S_GRE1 .* S_GRE2) ./ (S_GRE1.^2 + S_GRE2.^2);
-    case 'FSE'  % Fast Spin Echo
-        signal = signal_constant .* PD .* (1 - E1) .* E2;
-    case 'FLAIR'  % Fluid Attenuated Inversion Recovery
-        TI_s = TI / 1000;
-        signal = signal_constant .* PD .* (1 - 2*exp(-TI_s .* R1) + E1) .* E2;
-    otherwise  % Default to GRE
-        numerator = sin_alpha .* (1 - E1);
-        denominator = 1 - cos_alpha .* E1;
-        denominator = max(denominator, eps);
-        signal = signal_constant .* PD .* (numerator ./ denominator) .* E2;
-end
+% Ernst equation components
+numerator   = sin_alpha .* (1 - E1);
+denominator = 1 - cos_alpha .* E1;
+
+% Avoid division by zero
+denominator = max(denominator, eps);
+
+% Compute final signal 
+%% IMPORTANT: WE HAVE REMOVED MULTIPLICATION WITH SMAP (WHICH WAS AN APPROXIMATION) BY DELETING ".* smap_norm" . to ACTIVATE IT JUST ADD THIS BACK TO THE LINE BELOW. 
+%% WE NOW OBTAIN SMAPS USING ESPIRIT NOW FOR EACH COIL SEPERATELY
+signal = signal_constant  .* PD .* (numerator ./ denominator) .* E2;
 
 % Handle invalid values
 signal(~isfinite(signal)) = 0;

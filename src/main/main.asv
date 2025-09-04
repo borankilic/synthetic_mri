@@ -49,10 +49,10 @@ function main()
     generate_synthetic_images(cfg);
 
     % Generate delta B0 maps
-    runRomeo(cfg.paths.im_mag_dir, cfg.paths.im_phase_dir, cfg.params.real_echo_times, cfg.paths.output_dir, cfg.paths.patient_dir, cfg.paths.romeo_script_path);
+    runRomeo(cfg);
 
     % Convert images to k-space
-    nifti_to_kspace([cfg.paths.output_dir 'synthetic_images'] , 'fft_shift', true, 'normalize', true);
+    nifti_to_kspace(cfg.paths.output_dir , 'fft_shift', cfg, 'normalize', true);
 
     % Calculate and display processing time
     elapsed_time = toc(start_time);

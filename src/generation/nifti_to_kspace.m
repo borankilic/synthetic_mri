@@ -1,4 +1,4 @@
-function nifti_to_kspace(input_dir, varargin)
+function nifti_to_kspace(cfg)
 %NIFTI_TO_KSPACE Convert NIfTI brain images to k-space using inverse FFT
 %   Saves both magnitude and phase components of complex k-space data
 %
@@ -23,20 +23,15 @@ function nifti_to_kspace(input_dir, varargin)
 %       For real k-space data:
 %           - *_synthkspace_*.nii (real data only)
 
-    % Parse input arguments
-    p = inputParser;
-    addRequired(p, 'input_dir', @ischar);
-    addParameter(p, 'output_dir', '', @ischar);
-    addParameter(p, 'fft_shift', true, @islogical);
-    addParameter(p, 'normalize', false, @islogical);
-    addParameter(p, 'verbose', true, @islogical);
-    addParameter(p, 'save_complex', true, @islogical);
-    parse(p, input_dir, varargin{:});
     
-    fft_shift = p.Results.fft_shift;
-    normalize = p.Results.normalize;
-    verbose = p.Results.verbose;
-    save_complex = p.Results.save_complex;
+    kspace_params = cfg.params.kspace_params;
+    input_dir = cfg.paths.output_dir;
+    fft_shift = kspace_params.fft_shift;
+    normalize = kspace_params.normalize;
+    verbose = kspace_params.verbose;
+    save_complex = kspace_params.save_complex;
+    
+
     
     % Ensure input directory exists
     if ~exist(input_dir, 'dir')

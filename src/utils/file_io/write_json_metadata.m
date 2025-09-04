@@ -1,4 +1,4 @@
-function write_json_metadata(output_path, ref_header, TE, TR, FA)
+function write_json_metadata(output_path, ref_header, TE, TR, FA, cfg)
 %WRITE_JSON_METADATA Write JSON metadata file with sequence parameters and NIfTI header info
 %   write_json_metadata(output_path, ref_header, TE, TR, FA) creates a JSON
 %   file containing sequence parameters (TE, TR, FA) and NIfTI header
@@ -73,6 +73,9 @@ function write_json_metadata(output_path, ref_header, TE, TR, FA)
     % Add generation timestamp
     metadata.generated_timestamp = datestr(now, 'yyyy-mm-dd HH:MM:SS');
     metadata.matlab_version = version;
+
+    %Add config information
+    metadata.config = cfg;
     
     % Extract and add relevant NIfTI header information
     nifti_info = extract_nifti_metadata(ref_header);

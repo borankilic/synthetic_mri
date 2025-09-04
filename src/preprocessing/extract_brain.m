@@ -8,8 +8,10 @@ function extract_brain(data_struct, output_dir, varargin)
     p = inputParser;
     addRequired(p, 'data_struct', @isstruct);
     addRequired(p, 'output_dir', @ischar);
-    addParameter(p, 'method', 'fsl', @(x) any(validatestring(x, {'bet', 'fsl'})));
+    addParameter(p, 'method', 'bet', @(x) any(validatestring(x, {'bet', 'tissue_maps'})));
     addParameter(p, 'patient_dir', @ischar);
+    addParameter(p, 'threshold_tmap', 0.95, @isnumeric)
+    addParameter(p, 'threshold_bet', 0.5, @isnumeric)
     parse(p, data_struct, output_dir, varargin{:});
 
     method = p.Results.method;
@@ -19,9 +21,9 @@ function extract_brain(data_struct, output_dir, varargin)
         fprintf('Extracting brain using BET...\n');
         files_to_process = {data_struct.R1.filepath, data_struct.R2.filepath, data_struct.PD.filepath};
         extract_brain_bet(files_to_process, output_dir, patient_dir);
-    elseif strcmp(method, 'fsl')
+    elseif strcmp(method, 'tissue_maps')
         fprintf('Extracting brain using FSL...\n');
-        extract_brain_fsl(data_struct, output_dir);
+        extract_brain_tissue_maps(data_struct, output_dir, threshold_tmap);
     end
 end
 
@@ -96,12 +98,12 @@ end
 
 
 
-function extract_brain_fsl(data_struct, output_dir)
-    threshold = 0.95;
+function extract_brain_tissue_maps(data_struct, output_dir, threshold_tmap)
+
     name = erase(data_struct.R1.name, '_R1.nii');
     mask_file = fullfile(output_dir, [char(name) 'fsl_mask.nii']);
     if ~isfile(mask_file)
-        cmd1 =  sprintf('FSL fslmaths "%s" -add "%s" -add "%s" -thr %f -bin "%s" ', data_struct.c1.filepath , data_struct.c2.filepath, data_struct.c3.filepath, threshold, mask_file); 
+        cmd1 =  sprintf('FSL fslmaths "%s" -add "%s" -add "%s" -thr %f -bin "%s" ', data_struct.c1.filepath , data_struct.c2.filepath, data_struct.c3.filepath, threshold_tmap, mask_file); 
         cmd2 = sprintf('FSL fslmaths "%s" -kernel 3D -fillh -dilM -dilM -ero -ero -fillh -fillh -dilM "%s" ', mask_file, mask_file); 
         fprintf('Creating mask on: %s\n', data_struct.c1.name);
         [status, result] = system(cmd1);
