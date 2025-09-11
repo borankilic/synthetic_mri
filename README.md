@@ -14,11 +14,12 @@ The main workflow is controlled by the `main.m` script. Here's a high-level over
     *   **Signal Calculation:** It calculates the synthetic signal for each combination of TE, TR, and FA using `compute_ernst_signal.m`.
     *   **Save Images:** It saves the generated synthetic images as NIfTI files using `save_nifti_image.m` and writes the corresponding metadata to JSON files using `write_json_metadata.m`.
 3.  **Generate B0 Maps:** The `runRomeo.m` function is called to generate B0 maps from multi-echo phase data.
-4.  **Generate K-space Data:** The `nifti_to_kspace.m` function is called to convert the synthetic images to k-space data.
-    *   **Sensitivity Map Generation:** If not already present, it generates sensitivity maps using `create_smaps.m`.
+4.  **Sensitivity Map Generation:** If not already present, it generates sensitivity maps using `create_smaps.m`.
+5.  **Generate K-space Data:** The `nifti_to_kspace.m` function is called to convert the synthetic images to k-space data.
     *   **Phase evolution:** Phases of synthetic images  are assumed to be caused by phase portion of sensitivity maps and the B0 field inhomogenities under the assumption that phase evolves linearly with echo time.
     *   **Calculation of per-coil images:** Images are calculated for each coil seperately using respective sensitvity maps and stacked.
     *   **Taking FFT and Saving the images:** 3D FFT of each per-coil image is calculated and resulting k-space data is saved as seperate magnitude and phase NIFTI files, each with dimensions `(n_x, n_y, n_z, n_coil)`.
+    *   **Adding Correlated Noise:** Noise covariance matrix is calculated from noise scans and gaussian noise is added based on the user-defined SNR.
     
 ## How to Run
 
@@ -27,7 +28,7 @@ The main workflow is controlled by the `main.m` script. Here's a high-level over
     *   Install FSL, make sure it's in your system's PATH and it's accesible from the terminal via `FSL` command.
     *   Install Julia and the required packages for ROMEO (`ROMEO`, `MriResearchTools`, `ArgParse`). Then install ROMEO following theinstructions in [this link](https://github.com/korbinian90/ROMEO.jl#usage---command-line).
 2.  **Configure the paths:**
-    *   Open the `main.m` script and modify the paths in the "Setup paths" section to point to your data.
+    *   Open the [config.m](./config.m) script and modify the paths in the "Setup paths" section to point to your data.
     *   We adopt the folder structure of hMRI-toolbox for input directory. Your patient directory (`patient_dir`) should be structured as below:
     ```
     /patient_dir/
@@ -54,7 +55,40 @@ The main workflow is controlled by the `main.m` script. Here's a high-level over
     * `im_phase_dir` should point to the directory where weighted (T1,PD etc.) phase images (which MPMs are created from) are stored.  Directory should contain each echo in a seperate NIFTI file. Make sure length of the list `real_echo_times` provided and number of NIFTI files in `im_phase_dir` match.
     * `espririt_path` should point to the directory where the MATLAB library Matlab Library including implementations of [SPIRiT, ESPIRiT, Coil Compression, SAKE](https://people.eecs.berkeley.edu/~mlustig/Software.html). You can download the library from [here](https://people.eecs.berkeley.edu/~mlustig/software/SPIRiT_v0.3.tar.gz).
     * `romeo_script_path` should point to your `romeo.jl file`. Please follow the steps in [here ](https://github.com/korbinian90/ROMEO.jl#usage---command-line) to setup ROMEO. You can copy your file into (./
+    
     * `real_echo_times` be a list of echo times in ms. You can find the specific echo time in your sequence configuration file.
+    * `sequence` determines according to which MRI sequence synthetic images will be generated. Currently, available options are *GRE*, *MP2RAGE*, *FSE*, *FLAIR*.
+    * `TE_values` specifies the echo times (ms) used for generating synthetic weighted images.  
+    * `TR_values` specifies the repetition times (ms) for the sequence.  
+    * `FA_values` lists the flip angles (degrees) used for each acquisition.  
+    * `TI_values` specifies the inversion times; for *MP2RAGE*, values are given as pairs (first and second inversion), while for *FSE* they are listed individually.  
+    
+    * `extract_brain` selects the method for brain extraction (`bet`, `tissue_maps`, or `no`).  
+    * `interp_method` specifies the interpolation method for resampling images. Available options are `trilinear`, `nearestneighbour`, `cubic`, `spline`.  
+    * `threshold_tmap` sets the threshold for brain extraction when using tissue probability maps. Smaller values yield larger brain outlines. 
+    * `threshold_bet` sets the fractional intensity threshold for BET-based brain extraction. Smaller values yield larger brain outlines.  
+    * `signal_constant` is a multiplicative scaling factor applied to signal intensity to represent scanner- and sequence-dependent scaling.  
+    * `add_RF_bias` determines whether RF sensitivity bias is reintroduced to the synthetic images (not recommended if MPMs are already bias-corrected).  
+        
+    * `smap_params.ncalib` defines the size of the auto-calibration region (ACS) in k-space.  
+    * `smap_params.ksize` sets the kernel size for ESPIRiT calibration. Larger kernels increase runtime quadratically.  
+    * `smap_params.eigThresh1` is the eigenvalue threshold for selecting eigenvectors when constructing the reconstruction matrix.  
+    * `smap_params.eigThresh2` is used to only select eigenvectors with eigenvalues greater than eigThresh2 for the construction of sensititvity maps. If there is multiple eigenvectors with eigenvalue greater than eigThres2, resulting sens_map will be a linear combination of those. 
+    * `smap_params.show_figures` controls the verbosity of ESPIRiT visualizations (`none`, `essential`, `detailed`).  
+    * `smap_params.verbose` toggles detailed ESPIRiT console output.  
+    * `smap_params.smoothing_radius` specifies the radius of the Gaussian smoothing kernel applied to coil sensitivity maps.  
+    
+    * `kspace_params.fft_shift` applies an `fftshift` during Fourier transforms. 
+    * `kspace_params.normalize` normalizes k-space data during FFT.  
+    * `kspace_params.verbose` toggles detailed console output during FFT operations.  
+    * `kspace_params.save_complex` determines whether both magnitude and phase NIfTI files are saved (otherwise only magnitude is stored).  
+    
+    * `noise_params.SNR_dB` sets the target signal-to-noise ratio (dB). Use `-1` to disable noise addition.  
+    * `noise_params.add_correlated_noise` enables correlated noise simulation using covariance matrices from noise scans (otherwise uncorrelated AWGN is added).  
+    * `noise_params.num_variations` specifies the number of synthetic noise realizations generated per weighted image.  
+    
+
+
     
 3.  **Run the script:**
     *   Run the `main.m` script in MATLAB.
@@ -63,124 +97,55 @@ The script will then generate the synthetic images, k-space data, and B0 maps in
 
 ## Function Descriptions
 
-Here's a description of the key functions in the project:
+Here is an overview of the functions in the project, with a focus on the generation pipeline.
 
-### `main.m`
+### Generation Functions
 
-This is the main script that drives the entire workflow. It sets up the paths, defines the sequence parameters, and calls the other functions to generate the synthetic data.
+These functions are the core of the synthetic data generation process.
 
-**Key Parameters:**
+-   `generate_synthetic_images.m`: Orchestrates the entire synthetic image generation workflow. It iterates through all combinations of sequence parameters (TE, TR, FA, etc.) defined in `config.m` and calls `compute_ernst_signal` for each combination.
+-   `compute_ernst_signal.m`: The primary signal calculation engine. It computes the MRI signal intensity based on the input quantitative maps (R1, R2s, PD) and the specified sequence parameters. It supports multiple MRI sequences, including Gradient Echo (GRE), MP2RAGE, Fast Spin Echo (FSE), and FLAIR, by applying the appropriate physical signal equations for each.
+-   `create_smaps.m`: Computes coil sensitivity maps (smaps) from raw k-space data using the ESPIRiT algorithm. It reads a Siemens TWIX file, calibrates the k-space data, and saves the resulting sensitivity maps as both magnitude and phase NIfTI files.
+-   `nifti_to_kspace.m`: Converts the generated synthetic images from the image domain to the k-space domain. This process involves applying the B0 field inhomogeneity map and the previously generated coil sensitivity maps to simulate realistic, multi-coil k-space data. It performs an inverse FFT on the resulting coil images.
+-   `simulate_noise.m`: Adds noise to the k-space data to simulate a realistic acquisition. It can add either uncorrelated Additive White Gaussian Noise (AWGN) or correlated noise. For correlated noise, it calculates a noise covariance matrix from noise scans in the provided TWIX file. The noise level is controlled by the `SNR_dB` parameter in `config.m`.
+-   `runRomeo.m`: A wrapper script that executes the ROMEO (Robust Phase-unwrapping) algorithm. It takes multi-echo magnitude and phase images as input, merges them into 4D NIfTI files, and calls the `romeo.jl` Julia script to perform phase unwrapping and calculate the B0 field map.
+-   `kspace_to_nifti.m`: Performs the reverse operation of `nifti_to_kspace.m`. It reconstructs an image from complex k-space data (magnitude and phase files) by applying a forward FFT. This is useful for validating the k-space data.
 
--   `patient_dir`: The directory containing the patient's quantitative maps.
--   `kspace_path`: The path to the raw k-space data file.
--   `im_mag_dir`: The directory containing the magnitude images for B0 map generation.
--   `im_phase_dir`: The directory containing the phase images for B0 map generation.
--   `output_dir`: The directory where the generated data will be saved.
--   `TE_values`: A vector of echo times (in ms).
--   `TR_values`: A vector of repetition times (in ms).
--   `FA_values`: A vector of flip angles (in degrees).
+### Preprocessing Functions
 
-### `generate_synthetic_images.m`
+These functions prepare the input data for the generation pipeline.
 
-This function generates the synthetic weighted images.
+-   `extract_brain.m`: A wrapper for brain extraction. It can use either FSL's BET tool (`bet`) or combine tissue probability maps (`tissue_maps`) to create a brain mask.
+-   `register_b1_to_ref.m`: Coregisters the B1 map to the reference quantitative maps (e.g., R1 map) to ensure they are in the same spatial alignment.
+-   `resize_b1_map.m`: Resizes the B1 map to match the exact matrix dimensions of the reference data, using the specified interpolation method.
+-   `fixHotPixels.m`: Detects and corrects extreme outlier "hot pixels" in an image, which can otherwise cause artifacts in subsequent processing steps.
 
-**Key Parameters:**
+### Main Functions
 
--   `patient_dir`: The directory containing the patient's quantitative maps.
--   `output_dir`: The directory where the generated images will be saved.
--   `kspace_path`: The path to the raw k-space data file.
--   `TE_vals`: A vector of echo times (in ms).
--   `TR_vals`: A vector of repetition times (in ms).
--   `alpha_vals`: A vector of flip angles (in degrees).
--   `signal_constant`: A scaling factor for the signal intensity.
--   `interp_method`: The interpolation method to use for B1 map registration.
--   `extract_brain`: The brain extraction method to use ('bet', 'fsl', or 'no').
+-   `main.m`: The main script that drives the entire pipeline from start to finish. It loads the configuration, validates it, and calls the generation and processing functions in the correct order.
+-   `config.m`: The central configuration file for the project. **All user-specific settings must be defined here**, including paths to data, sequence parameters, and processing options.
 
-### `compute_ernst_signal.m`
+### File I/O Utilities
 
-This function computes the MRI signal using the Ernst equation.
+-   `create_data_struct.m`: Automatically scans the input directories defined in `config.m` and creates a structured variable (`data_struct`) that holds the paths to all required input files (R1, PD, B1 maps, etc.).
+-   `load_mri_data.m`: Loads the actual image data and header information from the NIfTI files listed in the `data_struct`.
+-   `read_twix.m`: Reads raw data from Siemens TWIX (`.dat`) files using the `mapVBVD` script. It can be used to extract k-space data or noise scan data.
+-   `save_nifti.m`: A robust function for saving NIfTI files that includes multiple fallback methods to prevent errors.
+-   `save_nifti_image.m`: A simpler wrapper function for saving NIfTI images.
+-   `write_comprehensive_json.m`: Creates detailed JSON metadata files for the generated images, including sequence parameters, processing history, and NIfTI header information.
+-   `write_json_metadata.m`: A simpler function to write essential metadata to a JSON file.
+-alidation Utilities
 
-**Inputs:**
+-   `validate_config.m`: Performs a series of checks on the `config.m` file to ensure all paths are valid and parameters are within reasonable ranges before starting the main pipeline.
+-   `validate_mri_data.m`: Checks that all required input quantitative maps (R1, R2s, PD) are present and have consistent dimensions.
+-   `synthImageEval.m`: A powerful tool for validation that compares a generated synthetic image against a ground-truth reference image. It computes several similarity metrics, including NRMSE, SSIM, Pearson correlation, and Mutual Information.
 
--   `data_struct`: A struct containing the PD, R1, R2s, and B1 maps.
--   `TE`: The echo time (in ms).
--   `TR`: The repetition time (in ms).
--   `alpha`: The flip angle (in degrees).
--   `signal_constant`: A scaling factor for the signal intensity.
--   `interp_method`: The interpolation method to use for B1 map resizing.
--   `extract_brain`: A string indicating whether to use the brain-extracted data.
+### Visualization Utilities
 
-**Output:**
+-   `view_brain_slices.m`: A simple utility to display orthogonal (axial, sagittal, coronal) views of a 3D NIfTI volume.
+-   `visualize_ESPIRIT.m`: Visualizes the output of the ESPIRiT algorithm, showing all individual channel images and the final root-mean-square (RMS) combined image.
+-   `visualize_smap.m`: Visualizes the coil sensitivity maps.
 
--   `signal`: The calculated MRI signal.
-
-### `create_smaps.m`
-
-This function computes ESPIRiT sensitivity maps from raw k-space data.
-
-**Inputs:**
-
--   `twix_filename`: The path to the Siemens TWIX file.
--   `sens_maps_out_file`: The output filename for the sensitivity maps.
-
-### `nifti_to_kspace.m`
-
-This function converts NIfTI images to k-space data using an inverse FFT.
-
-**Inputs:**
-
--   `input_dir`: The directory containing the NIfTI files.
-
-### `runRomeo.m`
-
-This function runs the ROMEO algorithm to generate B0 maps from multi-echo phase data.
-
-**Inputs:**
-
--   `magFolder`: The folder containing the magnitude images.
--   `phaseFolder`: The folder containing the phase images.
--   `echoTimes`: A vector of echo times.
--   `output_path`: The output path for the B0 map.
--   `mpm_dir`: The directory containing the MPMs.
--   `romeoScriptPath`: The path to the `romeo.jl` script.
-
-### Other Helper Functions
-
-The project also includes several helper functions for tasks such as:
-
--   `cfl_to_nifti.m`: Converts CFL files to NIfTI format.
--   `create_data_struct.m`: Creates a struct to hold the paths to the input data.
--   `DARTEL.m`: Registers B1 maps using DARTEL.
--   `extract_brain_bet.m`: Extracts the brain using FSL's BET.
--   `extract_brain_fsl.m`: Extracts the brain using FSL and tissue probability maps.
--   `fixHotPixels.m`: Fixes hot pixels in an image.
--   `get_bart_path2.m`: Gets the path to the BART toolbox.
--   `kspace_to_nifti.m`: Converts k-space data to NIfTI format.
--   `load_mri_data.m`: Loads MRI data from NIfTI files.
--   `nifti_to_cfl.m`: Converts NIfTI files to CFL format.
--   `register_b1_to_ref.m`: Registers B1 maps to a reference image.
--   `resize_b1_map.m`: Resizes B1 maps.
--   `save_nifti_image.m`: Saves NIfTI images.
--   `twix2cfl.m`: Converts TWIX files to CFL format.
--   `validate_mri_data.m`: Validates the input MRI data.
--   `view_brain_slices.m`: Visualizes brain slices.
--   `visualize_ESPIRIT.m`: Visualizes ESPIRiT sensitivity maps.
--   `visualize_smap.m`: Visualizes sensitivity maps.
--   `write_json_metadata.m`: Writes metadata to JSON files.
-
-## How to Run
-
-1.  **Set up the environment:**
-    *   Make sure you have MATLAB installed with the Image Processing Toolbox.
-    *   Install FSL and make sure it's in your system's PATH.
-    *   Install the BART toolbox and set the `BART_TOOLBOX_PATH` environment variable.
-    *   Install Julia and the required packages for ROMEO (`ROMEO`, `MriResearchTools`, `ArgParse`).
-2.  **Configure the paths:**
-    *   Open the `main.m` script and modify the paths in the "Setup paths" section to point to your data.
-3.  **Run the script:**
-    *   Run the `main.m` script in MATLAB.
-
-The script will then generate the synthetic images, k-space data, and B0 maps in the specified output directory.
 
 ## Dependencies
 

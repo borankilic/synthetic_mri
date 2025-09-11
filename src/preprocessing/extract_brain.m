@@ -16,18 +16,20 @@ function extract_brain(data_struct, output_dir, varargin)
 
     method = p.Results.method;
     patient_dir = p.Results.patient_dir;
+    threshold_tmap = p.Results.threshold_tmap;
+    threshold_bet = p.Results.threshold_bet;
 
     if strcmp(method, 'bet')
         fprintf('Extracting brain using BET...\n');
         files_to_process = {data_struct.R1.filepath, data_struct.R2.filepath, data_struct.PD.filepath};
-        extract_brain_bet(files_to_process, output_dir, patient_dir);
+        extract_brain_bet(files_to_process, output_dir, patient_dir, threshold_bet);
     elseif strcmp(method, 'tissue_maps')
-        fprintf('Extracting brain using FSL...\n');
+        fprintf('Extracting brain using tissue maps...\n');
         extract_brain_tissue_maps(data_struct, output_dir, threshold_tmap);
     end
 end
 
-function extract_brain_bet(files_list, output_dir, patient_dir)
+function extract_brain_bet(files_list, output_dir, patient_dir, threshold_bet)
 
     % --- First try PDw_WLS1fit_TEzero --- 
     %PDW_WLS1fit_TE_zero is a clean (weighted least squares fit of provided
@@ -41,13 +43,20 @@ function extract_brain_bet(files_list, output_dir, patient_dir)
         pd_file = fullfile(pd_files(1).folder, pd_files(1).name);
         fprintf('Found PDw_WLS1fit_TEzero file: %s\n', pd_file);
     else
-        % --- Fallback: look in files_list for PD.nii or PD.nii.gz ---
-        pd_idx = find(endsWith(files_list, 'PD.nii') | endsWith(files_list, 'PD.nii.gz'), 1);
-        if isempty(pd_idx)
-            error('No PDw_WLS1fit_TEzero or PD image found.');
+        pd_search_dir = fullfile(patient_dir, 'Results/Supplementary/');
+        pd_files= dir(fullfile(pd_search_dir, '*T1w_WLS1fit_TEzero.ni*'));
+        if ~isempty(pd_files)
+            pd_file = fullfile(pd_files(1).folder, pd_files(1).name);
+            fprintf('Found T1w_WLS1fit_TEzero file: %s\n', pd_file);
+        else
+            % --- Fallback: look in files_list for PD.nii or PD.nii.gz ---
+            pd_idx = find(endsWith(files_list, 'PD.nii') | endsWith(files_list, 'PD.nii.gz'), 1);
+            if isempty(pd_idx)
+                error('No PDw_WLS1fit_TEzero or PD image found.');
+            end
+            pd_file = string(files_list(pd_idx));
+            fprintf('Fallback to PD file from files_list: %s\n', pd_file);
         end
-        pd_file = string(files_list(pd_idx));
-        fprintf('Fallback to PD file from files_list: %s\n', pd_file);
     end
 
     % --- Prepare mask output path ---
@@ -55,12 +64,12 @@ function extract_brain_bet(files_list, output_dir, patient_dir)
     if strcmp(pd_ext, '.gz') && endsWith(pd_name, '.nii')
         pd_name = extractBefore(pd_name, '.nii');
     end
-    pd_output = fullfile(output_dir, [pd_name '_brain.nii.gz']);
-    pd_mask   = fullfile(output_dir, [pd_name '_brain_mask.nii.gz']);
+    pd_output = fullfile(output_dir, [convertStringsToChars(pd_name) '_brain.nii.gz']);
+    pd_mask   = fullfile(output_dir, [convertStringsToChars(pd_name) '_brain_mask.nii.gz']);
 
     % --- Run BET once to create mask ---
     if ~isfile(pd_mask)
-        cmd = sprintf('FSL bet "%s" "%s" -f 0.5 -g 0 -m', pd_file, pd_output);
+        cmd = sprintf('FSL bet "%s" "%s" -f %f -g 0 -m', pd_file, pd_output, threshold_bet);
         fprintf('Running BET: %s\n', cmd);
         [status, result] = system(cmd);
         if status ~= 0
@@ -104,7 +113,7 @@ function extract_brain_tissue_maps(data_struct, output_dir, threshold_tmap)
     mask_file = fullfile(output_dir, [char(name) 'fsl_mask.nii']);
     if ~isfile(mask_file)
         cmd1 =  sprintf('FSL fslmaths "%s" -add "%s" -add "%s" -thr %f -bin "%s" ', data_struct.c1.filepath , data_struct.c2.filepath, data_struct.c3.filepath, threshold_tmap, mask_file); 
-        cmd2 = sprintf('FSL fslmaths "%s" -kernel 3D -fillh -dilM -dilM -ero -ero -fillh -fillh -dilM "%s" ', mask_file, mask_file); 
+        cmd2 = sprintf('FSL fslmaths "%s" -kernel 3D -fillh -dilM -dilM -ero -ero "%s" ', mask_file, mask_file); 
         fprintf('Creating mask on: %s\n', data_struct.c1.name);
         [status, result] = system(cmd1);
         if status == 0

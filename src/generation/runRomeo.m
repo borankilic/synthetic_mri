@@ -19,10 +19,6 @@ function [status, cmdout] = runRomeo(cfg)
     romeoScriptPath = cfg.paths.romeo_script_path;
 
 
-
-    if nargin < 5
-        error('All 5 parameters are required.');
-    end
     
     B0_folder = fullfile(output_path, 'B0_map_unwrapped');
     % ensure output folder exists

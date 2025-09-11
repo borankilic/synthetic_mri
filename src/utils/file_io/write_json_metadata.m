@@ -59,7 +59,7 @@ function write_json_metadata(output_path, ref_header, TE, TR, FA, cfg)
     
     % hMRI toolbox compatible keys (convert from ms to seconds for TE and TR)
     metadata.EchoTime = TE / 1000;  % Convert ms to seconds
-    metadata.RepetitionTimeExcitation = TR / 1000;  % Convert ms to seconds
+    metadata.RepetitionTime = TR / 1000;  % Convert ms to seconds
     metadata.FlipAngle = FA;  % Already in degrees
     
     % Add units for clarity

@@ -1,4 +1,13 @@
-function register_b1_to_ref(b1_map_path, b1_ref_path, ref_path, output_dir, interp_method)
+function register_b1_to_ref(data_struct , ref_path, output_dir,interp_method)
+   
+    
+    try
+        b1_map_path=data_struct.B1map.filepath;
+        b1_ref_path=data_struct.B1ref.filepath;
+    catch
+        fprintf("No B1 map found. Skipping registeration.\n")
+        return
+    end
     [~, name, ext] = fileparts(b1_map_path);
     if strcmp(ext, '.gz') && endsWith(name, '.nii')
         name = extractBefore(name, '.nii');

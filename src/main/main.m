@@ -1,11 +1,15 @@
 function main()
     % Main function for the synthetic MRI generation pipeline
+    % Add src subfolders to path
+    
+    addpath(genpath('../'));
 
     % Load configuration
     cfg = config();
-
-    % Add src subfolders to path
-    addpath(genpath('../'));
+    if ~exist(cfg.paths.output_dir, 'dir'); mkdir(cfg.paths.output_dir); end
+    diary(fullfile(cfg.paths.output_dir, 'synthetic_log.txt'));
+    [cfg, flags] = validate_config(cfg);
+    
 
     %% Define MRI sequence parameter ranges
     fprintf('=== MRI Sequence Parameter Ranges ===\n\n');
@@ -46,14 +50,25 @@ function main()
     start_time = tic;
 
     % Generate synthetic images with the specified parameters
-    generate_synthetic_images(cfg);
+    data_struct = generate_synthetic_images(cfg);
 
     % Generate delta B0 maps
-    runRomeo(cfg);
+    if flags.imp_B0_corr
+        runRomeo(cfg);
+    else 
+        fprintf('B0 field distortions fill not be calculated since one of "romeo_script_path, im_mag_dir, im_phase_dir" were missing.')
+    end
 
-    % Convert images to k-space
-    nifti_to_kspace(cfg);
+    if flags.imp_kspace
+        % Create sensitivity maps
+        create_smaps(cfg, data_struct)
+        %Convert images to k-space
+        nifti_to_kspace(cfg);
+    else 
+        fprintf('Synthetic kspaces will not be generated since one of "kspace_path, mapVBVD_path, espirit_path" were missing.')
+    end 
 
+    
     % Calculate and display processing time
     elapsed_time = toc(start_time);
     fprintf('\n=== Processing Complete ===\n');
@@ -62,19 +77,10 @@ function main()
     fprintf('Generated %d synthetic MRI images\n', total_combinations);
     fprintf('Output location: %s\n', cfg.paths.output_dir);
 
-    %% Summary of generated files
-    fprintf('\n=== Generated Files Summary ===\n');
-    fprintf('Each parameter combination generates:\n');
-    fprintf('  1. NIfTI image file (.nii)\n');
-    fprintf('  2. JSON metadata file (.json)\n');
-    fprintf('  3. NIfTI kspace file- both magnitude and phase-(.nii)\n');
-    fprintf('  4. JSON metadata for kspace file (.json)\n');
-    fprintf('Total files created: %d\n', total_combinations * 4);
-
-    fprintf('\nFile naming convention:\n');
-    fprintf('  Images: [PatientID]_synthim_TE[X]_FA[Y]_TR[Z].nii\n');
-    fprintf('  Metadata: [PatientID]_synthim_TE[X]_FA[Y]_TR[Z].json\n');
 
     fprintf('\nScript execution completed successfully!\n');
+    diary off;
 end
+
+
 

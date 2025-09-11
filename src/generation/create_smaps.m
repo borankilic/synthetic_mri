@@ -1,4 +1,4 @@
-function  create_smaps(twix_filename, sens_maps_out_file, varargin)
+function  create_smaps(cfg, data_struct)
 % CREATE_SMAPS  Compute ESPIRiT sensitivity maps (simplified, preserving original logic)
 %
 %   smaps = create_smaps(twix_filename, sens_maps_out_file, ...)
@@ -22,51 +22,48 @@ function  create_smaps(twix_filename, sens_maps_out_file, varargin)
 % - Final smaps returned and saved with shape: [nx, n_slice, ny, n_channel]
 
 % -------------------- parse inputs --------------------
-p = inputParser;
-addRequired(p,'twix_filename', @(x)ischar(x)||isstring(x));
-addRequired(p,'sens_maps_out_file', @(x)ischar(x)||isstring(x));
-addParameter(p,'espirit_path','/data/u_kilicb_software/ESPIRiT/', @(x)ischar(x)||isstring(x));
-addParameter(p,'ncalib',20,@(x)isnumeric(x)&&isscalar(x));
-addParameter(p,'ksize',[5 5],@(x)isnumeric(x)&&numel(x)==2);
-addParameter(p,'eigThresh1',0.1,@(x)isnumeric(x)&&isscalar(x));
-addParameter(p,'eigThresh2',0.98,@(x)isnumeric(x)&&isscalar(x));
-addParameter(p,'show_figures','none', @(x)any(validatestring(x,{'none','essential','detailed'})));
-addParameter(p,'verbose',true,@islogical);
-addParameter(p, 'data_struct', @(x)isstruct(x));
-addParameter(p,'smoothing_radius',25,@(x)isnumeric(x)&&isscalar(x));
-parse(p, twix_filename, sens_maps_out_file, varargin{:});
+% Create sensitivity maps if doesnt exist yet
+sens_map_dir = fullfile(cfg.paths.output_dir, 'sens_maps');
+sens_maps_out_file = fullfile(sens_map_dir, replace(data_struct.R1.name,'R1.nii', 'smap.nii.gz'));
+if ~exist(sens_map_dir, 'dir'), mkdir(sens_map_dir), end
 
-espirit_path = char(p.Results.espirit_path);
-ncalib       = p.Results.ncalib;
-ksize        = p.Results.ksize;
-eigThresh1   = p.Results.eigThresh1;
-eigThresh2   = p.Results.eigThresh2;
-show_figures = validatestring(p.Results.show_figures,{'none','essential','detailed'});
-verbose      = p.Results.verbose;
-data_struct =  p.Results.data_struct;
-smoothing_radius = p.Results.smoothing_radius;
+if exist(replace(sens_maps_out_file, 'smap', 'smap_mag'), 'file')
+    fprintf("Skipping smap creation. Sensitivity maps already exists.\n");
+    return
+end
+twix_filename = cfg.paths.kspace_path;
+espirit_path = cfg.paths.espirit_path;
+ncalib = cfg.params.smap_params.ncalib;
+ksize = cfg.params.smap_params.ncalib;
+eigThresh1 = cfg.params.smap_params.eigThresh1;
+eigThresh2 = cfg.params.smap_params.eigThresh2;
+show_figures = cfg.params.smap_params.show_figures;
+verbose = cfg.params.smap_params.verbose;
+smoothing_radius = cfg.params.smap_params.smoothing_radius;
+
+
 
 % -------------------- simple checks --------------------
 if ~exist(twix_filename,'file')
     error('TWIX file not found: %s', twix_filename);
 end
 
-% If output exists, load and return quickly
-if exist(sens_maps_out_file,'file')
-    if verbose, fprintf('Output exists. Loading %s and returning.\n', sens_maps_out_file); end
-    try
-        smaps = niftiread(sens_maps_out_file);
-        return;
-    catch
-        % fallback: if .mat file
-        try
-            tmp = load(sens_maps_out_file);
-            if isfield(tmp,'smaps'), smaps = tmp.smaps; return; end
-        catch
-            warning('Could not load existing file (%s). Will recompute.', sens_maps_out_file);
-        end
-    end
-end
+% % If output exists, load and return quickly
+% if exist(sens_maps_out_file,'file')
+%     if verbose, fprintf('Output exists. Loading %s and returning.\n', sens_maps_out_file); end
+%     try
+%         smaps = niftiread(sens_maps_out_file);
+%         return;
+%     catch
+%         % fallback: if .mat file
+%         try
+%             tmp = load(sens_maps_out_file);
+%             if isfield(tmp,'smaps'), smaps = tmp.smaps; return; end
+%         catch
+%             warning('Could not load existing file (%s). Will recompute.', sens_maps_out_file);
+%         end
+%     end
+% end
 
 % -------------------- add ESPIRiT path and run setPath.m (if available) ----
 if exist(espirit_path,'dir')
@@ -98,7 +95,7 @@ if exist('kernelEig','file')~=2
 end
 % ESPIRiT constructor is optional; we'll warn if missing.
 have_ESPIRiT = (exist('ESPIRiT','file')==2);
-if ~(exist('ESPIRiT','file')==2) && verbose
+if ~have_ESPIRiT && verbose
     warning('ESPIRiT constructor not found. Using fallback projection if needed.');
 end
 
@@ -310,25 +307,28 @@ catch
     warning('Failed to permute smaps to [nx,n_slice,ny,n_channel]. Returning original ordering.');
 end
 % backup save
-save(sens_maps_out_file, 'smaps', '-v7.3');
-niftiwrite(abs(smaps), replace(sens_maps_out_file, 'smap', 'smap_mag')); % Save only the magnitude into to NIFTI
-niftiwrite(angle(smaps), replace(sens_maps_out_file, 'smap', 'smap_phase')); % Save only the magnitude into to NIFTI
+save(replace(sens_maps_out_file,'.nii.gz','.mat'), 'smaps', '-v7.3');
+smap_mag_out = replace(sens_maps_out_file, 'smap', 'smap_mag');
+smap_phase_out = replace(sens_maps_out_file, 'smap', 'smap_phase');
+
+niftiwrite(abs(smaps), smap_mag_out); % Save only the magnitude into to NIFTI
+niftiwrite(angle(smaps), smap_phase_out); % Save only the magnitude into to NIFTI
 
 
 %--------------------- Smooth the sensitivity map --------------------------
 % Build the fslmaths command
-cmd_smooth = sprintf('FSL fslmaths "%s" -s %d "%s"', sens_maps_out_file, smoothing_radius, sens_maps_out_file);
+cmd_smooth_mag = sprintf('FSL fslmaths "%s" -s %d "%s"', smap_mag_out, smoothing_radius, smap_phase_out);
+cmd_smooth_phase = sprintf('FSL fslmaths "%s" -s %d "%s"', smap_mag_out, smoothing_radius, smap_phase_out);
 
 % Run the command from MATLAB
-[status, cmdout] = system(cmd_smooth);
+[status1, cmdout1] = system(cmd_smooth_mag);
+[status2, cmdout2] = system(cmd_smooth_phase);
 
 % Check status
-if status == 0
-    fprintf('fslmaths command executed successfully.\n');
+if status1 == 0 && status2 == 0
+    fprintf('Smoothinh command executed successfully.\n');
 else
-    fprintf('Error: fslmaths command failed.\n', cmdout);
-
-
+    fprintf('Error: fslmaths command failed.\n %s \n %s', cmdout1, cmdout2);
 end
 % -------------------- save NIfTI with short description --------------------
 desc = sprintf('ESPIRiT smaps mag from %s on %s. ksize=[%d %d], ncalib=%d, eigThr1=%.3g, eigThr2=%.3g', ...
@@ -340,8 +340,8 @@ end
 try
     hdr_R1 = niftiinfo(data_struct.R1.filepath);
     info = extractHeaderFromData( hdr_R1, smaps);
-    niftiwrite(abs(smaps), replace(sens_maps_out_file, 'smap', 'smap_mag'), info); % Can try to add info later
-    niftiwrite(angle(smaps), replace(sens_maps_out_file, 'smap', 'smap_phase'), info);
+    niftiwrite(abs(smaps), smap_mag_out, info); % Can try to add info later
+    niftiwrite(angle(smaps), smap_phase_out, info);
     if verbose, fprintf('Saved smaps to %s\n', sens_maps_out_file); end
 catch MEw
     warning('niftiwrite failed (%s). Saving as MAT file instead.', ME.message);
@@ -362,142 +362,140 @@ end
 
 
 
-function data = read_twix(twix_filename, output_path, varargin)
-%READ_TWIX  Convert Siemens twix file to NIfTI format, with caching.
-%
-%   data = READ_TWIX(twix_filename, output_path, ...)
-%
-%   If the NIfTI file at output_path exists, it loads the data from it and returns.
-%   Otherwise, reads the Siemens twix file (.dat) using mapVBVD, processes it,
-%   and saves it as a NIfTI file at output_path, including header info.
+% function data = read_twix(twix_filename, output_path, varargin)
+% %READ_TWIX  Convert Siemens twix file to NIfTI format, with caching.
+% %
+% %   data = READ_TWIX(twix_filename, output_path, ...)
+% %
+% %   If the NIfTI file at output_path exists, it loads the data from it and returns.
+% %   Otherwise, reads the Siemens twix file (.dat) using mapVBVD, processes it,
+% %   and saves it as a NIfTI file at output_path, including header info.
+% 
+%     % Parse inputs
+%     p = inputParser;
+%     addRequired(p, 'twix_filename', @ischar);
+%     addRequired(p, 'output_path', @ischar);
+%     addParameter(p, 'subset', [], @(x) ischar(x) || iscell(x));
+%     addParameter(p, 'data_struct', @isstruct);
+%     parse(p, twix_filename, output_path, varargin{:});
+%     subset_params = p.Results.subset;
+%     data_struct = p.Results.data_struct;
+% 
+% 
+% 
+% 
+%     if modality == image
+%         % If output file exists, load and return
+%         magnitude_path = replace(output_path, '.nii', '_magnitude.nii');
+%         phase_path = replace(output_path, '.nii', '_phase.nii');
+%         if exist(magnitude_path, 'file') && exist(phase_path, 'file')
+%             fprintf('Loading existing NIfTI from: %s\n', output_path);
+%             mag = niftiread(magnitude_path);
+%             phase = niftiread(phase_path);
+%             data = mag .* exp(1i * phase);
+%             return;
+%         end
+% 
+% 
+% 
+%         % Check if twix file exists
+%         if ~exist(twix_filename, 'file')
+%             error('Twix file not found: %s', twix_filename);
+%         end
+% 
+%         fprintf('Reading twix file: %s\n', twix_filename);
+% 
+%         % Read twix file
+%         try
+%             twix_data = mapVBVD(twix_filename);
+%         catch ME
+%             error('Failed to read twix file with mapVBVD: %s', ME.message);
+%         end
+% 
+%         % If multiple measurements, take the last one
+%         if iscell(twix_data)
+%             if length(twix_data) > 1
+%                 fprintf('Multiple measurements found. Using the last one.\n');
+%             end
+%             twix_data = twix_data{end};
+%         end
+% 
+%         % Extract image data
+%         if isfield(twix_data, 'image')
+%             data = twix_data.image;
+%             data.flagRemoveOS = true;
+%             fprintf('Using image data from twix file.\n');
+%         elseif isfield(twix_data, 'data')
+%             data = twix_data.data();
+%             fprintf('Using raw data from twix file.\n');
+%         else
+%             error('No image or data field found in twix structure');
+%         end
+% 
+%         % Display original dims
+%         original_size = data.dataSize;
+%         dim_names = {'Col', 'Cha', 'Lin', 'Par', 'Sli', 'Ave', 'Phs', 'Eco', ...
+%                      'Rep', 'Set', 'Seg', 'Ida', 'Idb', 'Idc', 'Idd', 'Ide'};
+%         fprintf('Original data dimensions:\n');
+%         for i = 1:length(original_size)
+%             if i <= length(dim_names)
+%                 fprintf('  %s: %d\n', dim_names{i}, original_size(i));
+%             else
+%                 fprintf('  Dim%d: %d\n', i, original_size(i));
+%             end
+%         end
+% 
+%         data = squeeze(data);
+%         data = permute(squeeze(data(:,:,:,:,1)), [1,3,4,2]);
+% 
+%         final_size = size(data);
+%         fprintf('Final data dimensions after squeezing: %s\n', mat2str(final_size));
+% 
+%         % % ---- Extract NIfTI header info from twix_data ----
+%         % hdr = niftiinfoFromTwix(twix_data, final_size);
+% 
+%         % Handle complex data - save magnitude and phase separately
+%         if ~isreal(data)
+%             % Extract magnitude and phase
+%             magnitude_data = abs(data);
+%             phase_data = angle(data);
+% 
+%             % Extract headder info from the MPMs
+%             ref_header = niftiinfo(data_struct.R1.filepath);
+%             hdr = extractHeaderFromData(ref_header, magnitude_data);
+% 
+%             % Write magnitude NIfTI file with minimal header (let MATLAB create defaults)
+%             niftiwrite(single(magnitude_data), magnitude_path,hdr);
+% 
+%             % Write phase NIfTI file with minimal header (let MATLAB create defaults)
+%             niftiwrite(single(phase_data), phase_path, hdr);
+% 
+%             fprintf('Successfully converted CFL to NIfTI:\n');
+%             fprintf('  Magnitude: %s\n', magnitude_path);
+%             fprintf('  Phase: %s\n', phase_path);
+% 
+% 
+%         else
+%             % Data is real, save as single file
+%             output_path = fullfile(output_dir, [filename '.nii']);
+% 
+%             % Extract headder info from the twix
+%             ref_header = niftiinfo(data_struct.R1.filepath);
+%             hdr = extractHeaderFromData(ref_header, data);
+% 
+% 
+%             % Write NIfTI file with minimal header (let MATLAB create defaults)
+%             niftiwrite(single(data),output_path, hdr);
+% 
+%             fprintf('Successfully converted CFL to NIfTI: %s\n', output_path);
+%         end
+% 
+%     elseif modality == 'noise'
+%         output_path
+% 
+%     end
+% end
 
-    % Path to the folder containing mapVBVD
-    mapvbvd_folder = '/data/u_kilicb_software/mapVBVD-main/'; % <-- CHANGE THIS
-    addpath(mapvbvd_folder);
-
-    if ~exist('mapVBVD', 'file')
-        error('mapVBVD.m not found. Please check the mapvbvd_folder path.');
-    end
-
-    % If output file exists, load and return
-    magnitude_path = replace(output_path, '.nii', '_magnitude.nii');
-    phase_path = replace(output_path, '.nii', '_phase.nii');
-    if exist(magnitude_path, 'file') && exist(phase_path, 'file')
-        fprintf('Loading existing NIfTI from: %s\n', output_path);
-        mag = niftiread(magnitude_path);
-        phase = niftiread(phase_path);
-        data = mag .* exp(1i * phase);
-        return;
-    end
-
-    % Parse inputs
-    p = inputParser;
-    addRequired(p, 'twix_filename', @ischar);
-    addRequired(p, 'output_path', @ischar);
-    addParameter(p, 'subset', [], @(x) ischar(x) || iscell(x));
-    addParameter(p, 'data_struct', @isstruct);
-    parse(p, twix_filename, output_path, varargin{:});
-    subset_params = p.Results.subset;
-    data_struct = p.Results.data_struct;
-
-    % Check if twix file exists
-    if ~exist(twix_filename, 'file')
-        error('Twix file not found: %s', twix_filename);
-    end
-
-    fprintf('Reading twix file: %s\n', twix_filename);
-
-    % Read twix file
-    try
-        twix_data = mapVBVD(twix_filename);
-    catch ME
-        error('Failed to read twix file with mapVBVD: %s', ME.message);
-    end
-
-    % If multiple measurements, take the last one
-    if iscell(twix_data)
-        if length(twix_data) > 1
-            fprintf('Multiple measurements found. Using the last one.\n');
-        end
-        twix_data = twix_data{end};
-    end
-
-    % Extract image data
-    if isfield(twix_data, 'image')
-        data = twix_data.image;
-        data.flagRemoveOS = true;
-        fprintf('Using image data from twix file.\n');
-    elseif isfield(twix_data, 'data')
-        data = twix_data.data();
-        fprintf('Using raw data from twix file.\n');
-    else
-        error('No image or data field found in twix structure');
-    end
-
-    % Display original dims
-    original_size = data.dataSize;
-    dim_names = {'Col', 'Cha', 'Lin', 'Par', 'Sli', 'Ave', 'Phs', 'Eco', ...
-                 'Rep', 'Set', 'Seg', 'Ida', 'Idb', 'Idc', 'Idd', 'Ide'};
-    fprintf('Original data dimensions:\n');
-    for i = 1:length(original_size)
-        if i <= length(dim_names)
-            fprintf('  %s: %d\n', dim_names{i}, original_size(i));
-        else
-            fprintf('  Dim%d: %d\n', i, original_size(i));
-        end
-    end
-
-    data = squeeze(data);
-    data = permute(squeeze(data(:,:,:,:,1)), [1,3,4,2]);
-
-    final_size = size(data);
-    fprintf('Final data dimensions after squeezing: %s\n', mat2str(final_size));
-
-    % % ---- Extract NIfTI header info from twix_data ----
-    % hdr = niftiinfoFromTwix(twix_data, final_size);
-
-    % Handle complex data - save magnitude and phase separately
-    if ~isreal(data)
-        % Extract magnitude and phase
-        magnitude_data = abs(data);
-        phase_data = angle(data);
-        
-        % Extract headder info from the MPMs
-        ref_header = niftiinfo(data_struct.R1.filepath);
-        hdr = extractHeaderFromData(ref_header, magnitude_data);
-        
-        % Write magnitude NIfTI file with minimal header (let MATLAB create defaults)
-        niftiwrite(single(magnitude_data), magnitude_path,hdr);
-        
-        % Write phase NIfTI file with minimal header (let MATLAB create defaults)
-        niftiwrite(single(phase_data), phase_path, hdr);
-        
-        fprintf('Successfully converted CFL to NIfTI:\n');
-        fprintf('  Magnitude: %s\n', magnitude_path);
-        fprintf('  Phase: %s\n', phase_path);
-        
-    else
-        % Data is real, save as single file
-        output_path = fullfile(output_dir, [filename '.nii']);
-
-        % Extract headder info from the twix
-        ref_header = niftiinfo(data_struct.R1.filepath);
-        hdr = extractHeaderFromData(ref_header, data);
-
-        
-        % Write NIfTI file with minimal header (let MATLAB create defaults)
-        niftiwrite(single(data),output_path, hdr);
-        
-        fprintf('Successfully converted CFL to NIfTI: %s\n', output_path);
-    end
-        
-    % % Save as NIfTI with header
-    % fprintf('Saving processed data to NIfTI: %s\n', output_path);
-    % niftiwrite(data, output_path);
-
-
-
-end
 function hdr_out = extractHeaderFromData(hdr_in, data)
 % extractHeaderFromData  Header updater for 4D k-space data (multi-coil MRI)
 %

@@ -25,11 +25,13 @@ function nifti_to_kspace(cfg)
 
     
     kspace_params = cfg.params.kspace_params;
+    noise_params = cfg.params.noise_params;
     input_dir = cfg.paths.output_dir;
     fft_shift = kspace_params.fft_shift;
     normalize = kspace_params.normalize;
     verbose = kspace_params.verbose;
     save_complex = kspace_params.save_complex;
+    num_variations = noise_params.num_variations;
     
 
     
@@ -73,32 +75,31 @@ function nifti_to_kspace(cfg)
     end
     
     % Create output directory path
-    if isempty(p.Results.output_dir)
-        output_dir = fullfile(input_dir, 'synthetic_kspace');
-    else
-        output_dir = p.Results.output_dir;
-    end
+    
+    kspace_dir = fullfile(input_dir, 'synthetic_kspace');
+   
     
     % Create output directory if it doesn't exist
-    if ~exist(output_dir, 'dir')
-        mkdir(output_dir);
+    if ~exist(kspace_dir, 'dir')
+        mkdir(kspace_dir);
         if verbose
-            fprintf('Created output directory: %s\n', output_dir);
+            fprintf('Created output directory: %s\n', kspace_dir);
         end
     end
     
     % Find all NIfTI files in input directory
-    nii_files = dir(fullfile([input_dir 'synthetic_images'], '*.nii'));
+    image_dir = fullfile(input_dir, 'synthetic_images');
+    nii_files = dir(fullfile([image_dir 'synthetic_images'], '*.nii'));
     
     if isempty(nii_files)
-        warning('No NIfTI files found in directory: %s', input_dir);
+        warning('No NIfTI files found in directory: %s', image_dir);
         return;
     end
     
     if verbose
         fprintf('Found %d NIfTI files to process\n', length(nii_files));
-        fprintf('Input directory:  %s\n', input_dir);
-        fprintf('Output directory: %s\n', output_dir);
+        fprintf('Input directory:  %s\n', image_dir);
+        fprintf('Output directory: %s\n', kspace_dir);
         fprintf('FFT shift: %s\n', mat2str(fft_shift));
         fprintf('Normalize: %s\n', mat2str(normalize));
         fprintf('Save complex: %s\n', mat2str(save_complex));
@@ -194,24 +195,29 @@ function nifti_to_kspace(cfg)
                 fprintf('         K-space is complex: %s\n', mat2str(~isreal(kspace_data)));
             end
             
-            
-            % Save k-space data (magnitude and phase separately if complex)
-            [~, name, ~] = fileparts(input_filename);
-            kspace_filename = strrep(name, 'synthim', 'synthkspc');
-            output_filepath = fullfile(output_dir, [kspace_filename '.nii']);
-            save_nifti(kspace_data, output_filepath, niftiinfo(input_filepath), 'data_type', 'single');
-                
+            for j=1:num_variations
 
-            % Process JSON header if it exists
-            fft_details.num_coils = nc;
-            mag_filepath = replace(output_filepath,'.nii', '_mag.nii');
-            phase_filepath = replace(output_filepath,'.nii','_phase.nii');
-            metadata = write_comprehensive_json(mag_filepath, 'ref_nii_filepath', input_filepath, 'fft_details', fft_details,  'verbose', true);
-            write_comprehensive_json(phase_filepath, 'ref_nii_filepath', input_filepath, 'fft_details', fft_details, 'verbose', true);
-            
-            success_count = success_count + 1;
-            if verbose
-                fprintf('\n');
+                % Add noise
+                kspace_noisy = simulate_noise(kspace_data, twix_file_path, cfg);
+
+                % Save k-space data (magnitude and phase separately if complex)
+                [~, name, ~] = fileparts(input_filename);
+                kspace_filename = strrep(name, 'synthim', 'synthkspc');
+                output_filepath = fullfile(kspace_dir, [kspace_filename num2str(j) '.nii']);
+                save_nifti(kspace_noisy, output_filepath, niftiinfo(input_filepath), 'data_type', 'single');
+                    
+    
+                % Process JSON header if it exists
+                fft_details.num_coils = nc;
+                mag_filepath = replace(output_filepath,'.nii', '_mag.nii');
+                phase_filepath = replace(output_filepath,'.nii','_phase.nii');
+                metadata = write_comprehensive_json(mag_filepath, 'ref_nii_filepath', input_filepath, 'fft_details', fft_details,  'verbose', true);
+                write_comprehensive_json(phase_filepath, 'ref_nii_filepath', input_filepath, 'fft_details', fft_details, 'verbose', true);
+                
+                success_count = success_count + 1;
+                if verbose
+                    fprintf('Kspace and corresponding json file saved to %s \n');
+                end
             end
             
         catch ME
@@ -228,7 +234,7 @@ function nifti_to_kspace(cfg)
         fprintf('Processing complete!\n');
         fprintf('Successfully processed: %d files\n', success_count);
         fprintf('Errors encountered: %d files\n', error_count);
-        fprintf('Output directory: %s\n', output_dir);
+        fprintf('Output directory: %s\n', kspace_dir);
     end
 end
 
