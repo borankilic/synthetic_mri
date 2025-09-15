@@ -2,6 +2,7 @@
 
 This project provides a comprehensive pipeline for generating synthetic weighted MRI images from quantitative multi-parameter maps (R1, R2s, PD). It allows for flexible adjustment of sequence parameters (TE, TR, FA) to simulate various image contrasts. The pipeline also includes functionality to calculate the corresponding k-space data for each coil in an MRI scanner by estimating sensitivity maps.
 
+![image](R1.png)
 
 ## Workflow
 The core of this project is to take quantitative MRI maps (R1, R2s, PD) and generate realistic synthetic weighted images that would be produced by an MRI scanner with specific sequence parameters. This is achieved by applying the Ernst equation, which models the MRI signal intensity based on tissue properties and sequence parameters.
