@@ -1,4 +1,4 @@
-# mpm_to_weighted_codes
+# Synthetic Image and k-Space Generation from Quantitative Multi-Parameter Maps
 
 This project provides a comprehensive pipeline for generating synthetic weighted MRI images from quantitative multi-parameter maps (R1, R2s, PD). It allows for flexible adjustment of sequence parameters (TE, TR, FA) to simulate various image contrasts. The pipeline also includes functionality to calculate the corresponding k-space data for each coil in an MRI scanner by estimating sensitivity maps.
 
