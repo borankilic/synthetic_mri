@@ -21,6 +21,7 @@ The main workflow is controlled by the `main.m` script. Here's a high-level over
     *   **Calculation of per-coil images:** Images are calculated for each coil seperately using respective sensitvity maps and stacked.
     *   **Taking FFT and Saving the images:** 3D FFT of each per-coil image is calculated and resulting k-space data is saved as seperate magnitude and phase NIFTI files, each with dimensions `(n_x, n_y, n_z, n_coil)`.
     *   **Adding Correlated Noise:** Noise covariance matrix is calculated from noise scans and gaussian noise is added based on the user-defined SNR.
+
     
 ## How to Run
 
